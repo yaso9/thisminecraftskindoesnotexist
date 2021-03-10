@@ -1,6 +1,9 @@
 import os
 import argparse
 from uuid import uuid4
+import xml.etree.ElementTree as ET
+from multiprocessing import Pool
+
 import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
@@ -23,30 +26,68 @@ def get_url(page):
     return resolve_path(f"/skins/human/?op2=0&p={page}")
 
 
+def extract_skin_download_links(url):
+    try:
+        soup = BeautifulSoup(
+            requests.get(url, headers=HEADERS).text,
+            features="html.parser",
+        )
+
+        # Extract the url to download the skin
+        return resolve_path(soup.find("a", {"title": "Download "})["href"])
+    except:
+        return None
+
+
+# Download file
+def download_file(url):
+    try:
+        with open(os.path.join(SAVE_PATH, f"{uuid4()}.png"), "wb") as file:
+            file.write(requests.get(url, headers=HEADERS).content)
+    except:
+        pass
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Download minecraft skins from planet minecraft."
     )
-    parser.add_argument("pages", type=int, help="the number of pages to scrape")
+    parser.add_argument(
+        "sitemap", type=str, help="the planet minecraft sitemap url to use"
+    )
+    parser.add_argument("skins", type=int, help="the number of skins to download")
     args = parser.parse_args()
 
-    for page in tqdm(range(1, args.pages + 1), position=0):
-        soup = BeautifulSoup(
-            requests.get(get_url(page), headers=HEADERS).text, features="html.parser"
+    # Get skin page urls
+    root = ET.fromstring(
+        requests.get(
+            args.sitemap,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT x.y; rv:10.0) Gecko/20100101 Firefox/10.0"
+            },
+        ).text
+    )
+    urls = [
+        el.find("{http://www.sitemaps.org/schemas/sitemap/0.9}loc").text
+        for el in root.findall("{http://www.sitemaps.org/schemas/sitemap/0.9}url")
+        if el.find("{http://www.sitemaps.org/schemas/sitemap/0.9}loc").text.startswith(
+            "https://www.planetminecraft.com/skin"
         )
+    ][: args.skins]
 
-        # Get the paths for all the skins on the page
-        paths = [el["href"] for el in soup.findAll("a", {"class": "r-title"})]
-
-        for skin_path in tqdm(paths, position=1):
-            soup = BeautifulSoup(
-                requests.get(resolve_path(skin_path), headers=HEADERS).text,
-                features="html.parser",
+    with Pool(256) as p:
+        list(
+            tqdm(
+                p.imap_unordered(
+                    download_file,
+                    filter(
+                        lambda x: x is not None,
+                        tqdm(
+                            p.imap_unordered(extract_skin_download_links, urls),
+                            total=len(urls),
+                        ),
+                    ),
+                ),
+                total=len(urls),
             )
-
-            # Extract the url to download the skin
-            download_path = soup.find("a", {"title": "Download "})["href"]
-            with open(os.path.join(SAVE_PATH, f"{uuid4()}.png"), "wb") as file:
-                file.write(
-                    requests.get(resolve_path(download_path), headers=HEADERS).content
-                )
+        )
