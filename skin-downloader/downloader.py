@@ -2,7 +2,7 @@ import os
 import argparse
 from uuid import uuid4
 import xml.etree.ElementTree as ET
-from multiprocessing import Pool
+from multiprocessing import Process, Manager
 
 import requests
 from bs4 import BeautifulSoup
@@ -48,6 +48,27 @@ def download_file(url):
         pass
 
 
+# Extract skin download links until the queue is empty
+def extract_all_skin_download_links(page_queue, file_queue):
+    while not page_queue.empty():
+        queue_monitor(page_queue, file_queue)
+        page = page_queue.get()
+        file_queue.put(extract_skin_download_links(page))
+
+
+# Download all the files in the queue
+def download_all_files(file_queue):
+    while not file_queue.empty():
+        queue_monitor(file_queue)
+        url = file_queue.get()
+        download_file(url)
+
+
+# Print out the length of all the queues passed in
+def queue_monitor(*args):
+    print([queue.qsize() for queue in args], end="\r")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Download minecraft skins from planet minecraft."
@@ -75,19 +96,32 @@ if __name__ == "__main__":
         )
     ][: args.skins]
 
-    with Pool(256) as p:
-        list(
-            tqdm(
-                p.imap_unordered(
-                    download_file,
-                    filter(
-                        lambda x: x is not None,
-                        tqdm(
-                            p.imap_unordered(extract_skin_download_links, urls),
-                            total=len(urls),
-                        ),
-                    ),
-                ),
-                total=len(urls),
+    with Manager() as manager:
+        page_queue = manager.Queue()
+        for url in urls:
+            page_queue.put(url)
+
+        file_queue = manager.Queue()
+
+        processes = [
+            Process(
+                target=extract_all_skin_download_links, args=(page_queue, file_queue)
             )
-        )
+            for i in range(256)
+        ]
+
+        for process in processes:
+            process.start()
+
+        for process in processes:
+            process.join()
+
+        processes = [
+            Process(target=download_all_files, args=(file_queue,)) for i in range(256)
+        ]
+
+        for process in processes:
+            process.start()
+
+        for process in processes:
+            process.join()
