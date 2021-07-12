@@ -61,15 +61,15 @@ def train(
     criterion,
     optimizerGenerator,
     optimizerDiscriminator,
-    loader,
-    batch_size,
+    get_loader,
     epochs,
     save_path,
     start_epoch,
 ):
     for epoch in range(start_epoch, epochs):
         print(epoch)
-        for i, images in enumerate(loader, 0):
+        loader = get_loader()
+        for i, images in enumerate(loader):
             batch_size = images.size(0)
 
             # Train discriminator
@@ -135,11 +135,6 @@ if __name__ == "__main__":
     parser.add_argument("--load", type=str, default=None, help="The save file to load")
     args = parser.parse_args()
 
-    loader = DataLoader(
-        ImageDataset(args.images, transform=transforms.ToTensor()),
-        batch_size=args.batch_size,
-    )
-
     generator = Generator().to("cuda")
     discriminator = Discriminator().to("cuda")
 
@@ -169,8 +164,24 @@ if __name__ == "__main__":
         criterion,
         optimizerGenerator,
         optimizerDiscriminator,
-        loader,
-        args.batch_size,
+        lambda: DataLoader(
+            ImageDataset(
+                args.images,
+                transform=transforms.Compose(
+                    [
+                        transforms.ToTensor(),
+                        transforms.ColorJitter(
+                            brightness=(0.8, 1.2),
+                            contrast=(0.8, 1.2),
+                            saturation=(0.8, 1.2),
+                            hue=(-0.2, 0.2),
+                        ),
+                        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                    ]
+                ),
+            ),
+            batch_size=args.batch_size,
+        ),
         args.epochs,
         args.save_path,
         start_epoch,

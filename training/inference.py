@@ -16,7 +16,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     generator = Generator().to("cuda")
-    generator.load_state_dict(torch.load(args.save_path)['generator'])
+    generator.load_state_dict(torch.load(args.save_path)["generator"])
 
     image = generator(torch.randn(1, 100, 1, 1).to("cuda"))
-    save_image(image[0], args.image_path)
+    save_image(image[0], args.image_path, normalize=True, range=(-1, 1))
